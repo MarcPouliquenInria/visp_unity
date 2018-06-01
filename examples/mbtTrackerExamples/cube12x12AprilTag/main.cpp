@@ -12,11 +12,12 @@
 #include <visp3/sensor/vpV4l2Grabber.h>
 #endif
 #include <visp3/io/vpImageIo.h>
+#include <visp3/mbt/vpMbEdgeTracker.h>
 
 int main(int argc, const char **argv)
 {
 //! [Macro defined]
-#if defined(VISP_HAVE_APRILTAG) && (defined(VISP_HAVE_V4L2) || defined(VISP_HAVE_OPENCV))
+#if defined(VISP_HAVE_APRILTAG) && (defined(VISP_HAVE_V4L2) || defined(VISP_HAVE_OPENCV)) && defined(VISP_HAVE_MODULE_MBT)
   //! [Macro defined]
 
   int opt_device = 0;
@@ -125,6 +126,7 @@ int main(int argc, const char **argv)
       d = new vpDisplayGDI(I);
 #elif defined(VISP_HAVE_OPENCV)
       d = new vpDisplayOpenCV(I);
+std::cout << "opencv\n";
 #endif
     }
 
@@ -139,8 +141,38 @@ int main(int argc, const char **argv)
     detector.setDisplayTag(display_tag, color_id < 0 ? vpColor::none : vpColor::getColor(color_id), thickness);
     //! [AprilTag detector settings]
 
+
+/// Prepare MBT
+
+      vpMbEdgeTracker * tracker = new vpMbEdgeTracker;
+      
+      //edges
+      vpMe me;
+      me.setMaskSize(5);
+      me.setMaskNumber(180);
+      me.setRange(8);
+      me.setThreshold(10000);
+      me.setMu1(0.5);
+      me.setMu2(0.5);
+      me.setSampleStep(4);
+      dynamic_cast<vpMbEdgeTracker *>(tracker)->setMovingEdge(me);
+
+      //camera calibration params
+      cam.initPersProjWithoutDistortion(839, 839, 325, 243);
+      tracker->setCameraParameters(cam);
+
+      //model definition
+      tracker->loadModel("cube.cao");
+      tracker->setDisplayFeatures(true);
+tracker->setGoodMovingEdgesRatioThreshold(0.4);
+
+
+/// Acquisition aprilTag
     std::vector<double> time_vec;
-    for (;;) {
+    int nbTags = 0;
+    vpHomogeneousMatrix cMapril;
+    // wait for a tag detection
+    while(nbTags == 0) {
 //! [Acquisition]
 #if defined(VISP_HAVE_V4L2)
       g.acquire(I);
@@ -170,17 +202,68 @@ int main(int argc, const char **argv)
       }
       //! [Display camera pose for each tag]
 
+      vpDisplay::displayText(I, 20, 20, "Waiting tag detection.", vpColor::red);
+      vpDisplay::flush(I);
+
+      nbTags = detector.getNbObjects();
+      if(nbTags > 0)
+        cMapril =  cMo_vec.at(0);
+    }
+
+///Init model-based tracker
+     vpHomogeneousMatrix cubeMapril; //from aprilTag center to cube origin (top-left corer of aprilTag face)
+     cubeMapril.eye();
+     // frame rotation
+     cubeMapril[0][0] = 0;
+     cubeMapril[1][1] = 0;
+     cubeMapril[2][2] = 0;
+     cubeMapril[0][2] = 1;
+     cubeMapril[1][0] = -1;
+     cubeMapril[2][1] = -1;
+     // origin translation (in cube frame)
+     cubeMapril[0][3] = -0.062;
+     cubeMapril[1][3] = 0;
+     cubeMapril[2][3] = -0.062;
+
+     vpPoseVector camPcube;
+     camPcube.buildFrom(cMapril * cubeMapril.inverse());
+
+     tracker->initFromPose(I, camPcube);
+
+///Track model  
+
+    vpHomogeneousMatrix cMo;
+    while(1) {
+//! [Acquisition]
+#if defined(VISP_HAVE_V4L2)
+      g.acquire(I);
+#elif defined(VISP_HAVE_OPENCV)
+      cap >> frame; // get a new frame from camera
+      vpImageConvert::convert(frame, I);
+#endif
+      //! [Acquisition]
+
+      vpDisplay::display(I);
+
+      //! [Track]
+      tracker->track(I);
+      //! [Track]
+      //! [Get pose]
+      tracker->getPose(cMo);
+      //! [Get pose]
+      //! [Display]
+      tracker->getCameraParameters(cam);
+      tracker->display(I, cMo, cam, vpColor::red, 2);
+      //! [Display]
+      vpDisplay::displayFrame(I, cMo, cam, 0.025, vpColor::none, 3);
+
+
+
       vpDisplay::displayText(I, 20, 20, "Click to quit.", vpColor::red);
       vpDisplay::flush(I);
       if (vpDisplay::getClick(I, false))
         break;
     }
-
-    std::cout << "Benchmark computation time" << std::endl;
-    std::cout << "Mean / Median / Std: " << vpMath::getMean(time_vec) << " ms"
-              << " ; " << vpMath::getMedian(time_vec) << " ms"
-              << " ; " << vpMath::getStdev(time_vec) << " ms" << std::endl;
-
     if (! display_off)
       delete d;
 
