@@ -15,12 +15,12 @@ V1
 0                  # Number of faces
 # Faces from 3D points
 6                  # Number of faces
-4 0 1 2 3          # Face 0: [number of points] [index of the 3D points]...
-4 1 6 5 2
-4 4 5 6 7
-4 0 3 4 7
-4 5 4 3 2
-4 0 7 6 1          # Face 5
+4 0 3 2 1          # Face 0: [number of points] [index of the 3D points]...
+4 1 2 5 6
+4 4 7 6 5
+4 0 7 4 3
+4 5 2 3 4
+4 0 1 6 7          # Face 5
 # 3D cylinders
 0                  # Number of cylinders
 # 3D circles
